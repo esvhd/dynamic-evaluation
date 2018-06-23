@@ -1,11 +1,11 @@
-import argparse
+# import argparse
 import time
 import math
 import numpy as np
 import os
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
+# from torch.autograd import Variable
 import data
 
 
@@ -25,20 +25,24 @@ def batchify(data, bsz):
 def repackage_hidden(h):
     """Wraps hidden states in new Variables, to detach them from their history.
     """
-    if type(h) == Variable:
-        return Variable(h.data)
+    # if type(h) == Variable:
+    #     return Variable(h.data)
+    if isinstance(h, torch.Tensor):
+        return h.detach()
     else:
         return tuple(repackage_hidden(v) for v in h)
 
 
-def get_batch(source, i, evaluation=False):
+def get_batch(source, i, args, evaluation=False):
     seq_len = min(args.bptt, len(source) - 1 - i)
-    data = Variable(source[i:i + seq_len], volatile=evaluation)
-    target = Variable(source[i + 1:i + 1 + seq_len].view(-1))
+    # data = Variable(source[i:i + seq_len], volatile=evaluation)
+    # target = Variable(source[i + 1:i + 1 + seq_len].view(-1))
+    data = source[i:i + seq_len]
+    target = source[i + 1:i + 1 + seq_len].view(-1)
     return data, target
 
 
-def gradstat():
+def gradstat(args, corpus, model, train_data, criterion):
 
     if args.QRNN:
         model.reset()
@@ -56,7 +60,7 @@ def gradstat():
         seq_len = args.bptt
         model.eval()
 
-        data, targets = get_batch(train_data, i)
+        data, targets = get_batch(train_data, i, args)
         hidden = repackage_hidden(hidden)
         model.zero_grad()
         # assumes model has atleast 2 returns, and first is output and second
@@ -102,7 +106,7 @@ def gradstat():
         param.data0 = 1 * param.data
 
 
-def evaluate():
+def evaluate(args, model, corpus, criterion):
 
     if args.QRNN:
         model.reset()
@@ -143,7 +147,7 @@ def evaluate():
             seq_len = eval_data.size(0) - i - 1
             last = True
 
-        data, targets = get_batch(eval_data, i)
+        data, targets = get_batch(eval_data, i, args)
 
         hidden = repackage_hidden(hidden)
 
@@ -189,6 +193,8 @@ def evaluate():
 
 
 if __name__ == '__main__':
+
+    import argparse
 
     parser = argparse.ArgumentParser(
         description='PyTorch PennTreeBank RNN/LSTM Language Model')
@@ -242,8 +248,9 @@ if __name__ == '__main__':
     test_batch_size = 1
 
     # load model
+    global model, criterion, optimizer
     with open(model_name, 'rb') as f:
-        model = torch.load(f)
+        model, criterion, optimizer = torch.load(f)
 
     ntokens = len(corpus.dictionary)
     criterion = nn.CrossEntropyLoss()
@@ -259,7 +266,7 @@ if __name__ == '__main__':
 
     print('collecting gradient statistics')
     # collect gradient statistics on training data
-    gradstat()
+    gradstat(args, corpus, model, train_data, criterion)
 
     lr = args.lr
     lamb = args.lamb
@@ -270,7 +277,7 @@ if __name__ == '__main__':
     if not(args.grid or args.gridfast):
         print('running dynamic evaluation')
         # apply dynamic evaluation
-        loss = evaluate()
+        loss = evaluate(args, model, corpus, criterionargs, model, corpus, criterion)
         print('perplexity loss: ' + str(loss[0]))
     else:
         vbest = 99999999
@@ -295,7 +302,7 @@ if __name__ == '__main__':
             for j in range(0, len(lrlist)):
                 lamb = lamblist[i]
                 lr = lrlist[j]
-                loss = evaluate()
+                loss = evaluate(args, model, corpus, criterion)
                 loss = loss[0]
                 if loss < vbest:
                     lambbest = lamb
@@ -309,13 +316,13 @@ if __name__ == '__main__':
         eval_data = val_data
         lamb = lambbest
         lr = lrbest
-        vloss = evaluate()
+        vloss = evaluate(args, model, corpus, criterion)
         for param in model.parameters():
             param.data = 1 * param.data0
 
         eval_data = test_data
         lamb = lambbest
         lr = lrbest
-        tloss = evaluate()
+        tloss = evaluate(args, model, corpus, criterion)
         print('validation perplexity loss: ' + str(vloss[0]))
         print('test perplexity loss: ' + str(tloss[0]))
